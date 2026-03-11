@@ -1,3 +1,6 @@
+// ⚠️  THIS MUST BE THE FIRST IMPORT — see telemetry.ts for why
+import './telemetry/telemetry';
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 

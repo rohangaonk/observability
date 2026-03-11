@@ -26,7 +26,7 @@ We are simulating a production-grade observability stack, moving away from simpl
 ### Phase 1: Foundation & Telemetry Generation
 *   [x] Initialize a basic Node.js / NestJS application.
 *   [x] Implement a Log/Traffic Simulator within the app to generate realistic API requests, varying latencies, and occasional errors.
-*   [ ] Integrate the **OpenTelemetry Node.js SDK** to instrument the application (Traces and structured Logs).
+*   [x] Integrate the **OpenTelemetry Node.js SDK** to instrument the application (Traces and structured Logs).
 *   [ ] Set up a local `docker-compose.yml` with the **OpenTelemetry Collector**.
 *   [ ] Configure the Collector to receive data from NestJS and export it (initially to the console/file for verification).
 *   [ ] Add local visualization (e.g. Jaeger) to verify trace generation.
