@@ -1,0 +1,97 @@
+receivers:
+  # The OTLP receiver is the standard way for OTel-instrumented apps to push
+  # telemetry INTO the Collector. It speaks the OpenTelemetry Protocol (OTLP).
+  #
+  # Two transports are supported — we enable both:
+  #   - grpc: port 4317  (binary, efficient, used by most SDKs by default)
+  #   - http: port 4318  (JSON over HTTP, easier to debug with curl)
+  #
+  # Our NestJS app uses OTLP/HTTP (OTLPTraceExporter with a URL), so port 4318
+  # is the one that matters here. We keep gRPC available for future tools.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317   # Listen on all interfaces inside the container
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # The batch processor is almost always the first processor you add.
+  # Instead of forwarding each span individually (expensive), it accumulates
+  # spans and sends them in batches.
+  #
+  # send_batch_size: flush when the buffer hits 512 spans
+  # timeout: flush every 5s even if the batch isn't full yet
+  #          (prevents spans being stuck in the buffer during low traffic)
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+
+  # memory_limiter prevents the Collector from consuming unbounded memory
+  # if a backend is slow or downstream is overwhelmed.
+  # It checks memory every second and drops new data if over 400MiB.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+exporters:
+  # The debug exporter prints received telemetry to the Collector's stdout.
+  # verbosity: detailed → prints the full span/metric/log body.
+  #
+  # This is the MOST IMPORTANT exporter for learning. Before you trust that
+  # data is flowing, you verify it here. It's the Collector's console.log.
+  #
+  # In later phases we'll add:
+  #   - otlp/jaeger exporter  → sends traces to Jaeger
+  #   - kafka exporter        → sends to Kafka topic
+  debug:
+    verbosity: detailed
+
+  # The otlp exporter sends data OUT of the Collector using the OTLP protocol.
+  # We name it "otlp/jaeger" (the "/jaeger" suffix is just a label — you can
+  # have multiple otlp exporters with different names and configs).
+  #
+  # endpoint: jaeger:4317
+  #   "jaeger" resolves to the Jaeger container via Docker's internal DNS.
+  #   Port 4317 = Jaeger's OTLP/gRPC receiver (enabled by COLLECTOR_OTLP_ENABLED=true).
+  #   gRPC is preferred here: it's binary, more efficient than HTTP/JSON for
+  #   collector-to-collector hops inside a Docker network.
+  #
+  # tls.insecure: true — no TLS certificates needed for local Docker networking.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+extensions:
+  # The health_check extension exposes a /health endpoint on port 13133.
+  # Used by Docker's healthcheck to know when the Collector is ready.
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  # Extensions must be listed here to be activated
+  extensions: [health_check]
+
+  # Pipelines wire receivers → processors → exporters together.
+  # You can have separate pipelines for traces, metrics, and logs —
+  # each can route to different exporters independently.
+  pipelines:
+    # Traces pipeline: receives OTLP spans → batches them → sends to BOTH:
+    #   1. debug   → Collector stdout (so we can still see raw span data in logs)
+    #   2. jaeger  → Jaeger for visual exploration in the UI
+    #
+    # This is the power of the Collector's exporter fan-out:
+    # one pipeline can write to multiple backends simultaneously.
+    # The app doesn't know or care that both backends exist.
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug, otlp/jaeger]
+
+    # Metrics pipeline: same flow for metrics
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

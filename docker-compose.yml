@@ -1,0 +1,57 @@
+services:
+  # ─────────────────────────────────────────────────────────────────
+  # OpenTelemetry Collector
+  # Role: receives telemetry from the NestJS app via OTLP,
+  #       processes it (batching, memory limiting),
+  #       and exports it to backends (currently: debug/console).
+  #
+  # Image: otel/opentelemetry-collector-contrib
+  #   "contrib" = the community distribution that includes extra receivers,
+  #   processors, and exporters beyond the core image. We'll need the
+  #   Kafka exporter (Phase 2) and Jaeger exporter — both are contrib-only.
+  # ─────────────────────────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.119.0
+    container_name: otel-collector
+    # Mount our pipeline config into the container.
+    # The --config flag tells the Collector where to find it.
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver  — used by gRPC-based SDKs
+      - "4318:4318"   # OTLP HTTP receiver  — used by our NestJS app
+      - "13133:13133" # Health check endpoint — GET /health returns 200 when ready
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:13133/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      jaeger:
+        condition: service_started  # Wait for Jaeger to be up before the Collector starts forwarding
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
+  # Jaeger — distributed trace visualization
+  # Role: stores spans and serves the trace waterfall UI.
+  #
+  # "all-in-one" bundles the collector, query service, and UI into one
+  # container — ideal for local development. In production you'd run
+  # these as separate services with persistent storage (Cassandra, ES).
+  #
+  # Jaeger 1.35+ accepts OTLP natively, so the OTel Collector can forward
+  # spans to it using the standard otlp exporter — no legacy Jaeger protocol needed.
+  # ─────────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    environment:
+      # OTLP receiver is disabled by default in Jaeger — this flag enables it.
+      # Without this, Jaeger listens on its own Thrift/gRPC protocol, not OTLP.
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # Jaeger UI — open this in your browser
+      # We do NOT expose 4317/4318 on the host — the Collector owns those ports.
+      # The Collector talks to Jaeger on port 4317 via the internal Docker network.
+    restart: unless-stopped
