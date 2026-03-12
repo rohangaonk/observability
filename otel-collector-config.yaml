@@ -73,6 +73,7 @@ exporters:
     protocol_version: 2.0.0
     # The topic to publish to.
     topic: telemetry.metrics
+    encoding: otlp_json
 
   kafka/logs:
     brokers:
@@ -80,6 +81,7 @@ exporters:
     protocol_version: 2.0.0
     # The topic to publish to.
     topic: telemetry.logs
+    encoding: otlp_json
 
 extensions:
   # The health_check extension exposes a /health endpoint on port 13133.

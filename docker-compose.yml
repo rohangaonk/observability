@@ -107,3 +107,46 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
+  # Apache Flink JobManager
+  # Role: The coordinator/master node for the Flink cluster.
+  #       Accepts Flink jobs, schedules tasks, and coordinates checkpoints.
+  # ─────────────────────────────────────────────────────────────────
+  flink-jobmanager:
+    build:
+      context: ./flink-jobs
+    image: flink-py:latest
+    container_name: flink-jobmanager
+    ports:
+      - "8082:8081" # Flink Web UI - use this to monitor jobs and task managers
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    volumes:
+      - ./flink-jobs:/opt/flink/usrlib
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
+  # Apache Flink TaskManager
+  # Role: The worker node that actually executes the stream processing tasks.
+  #       You can scale these up to process higher volumes of data.
+  # ─────────────────────────────────────────────────────────────────
+  flink-taskmanager:
+    build:
+      context: ./flink-jobs
+    image: flink-py:latest
+    container_name: flink-taskmanager
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    volumes:
+      - ./flink-jobs:/opt/flink/usrlib
+    restart: unless-stopped

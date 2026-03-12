@@ -37,12 +37,12 @@ We are simulating a production-grade observability stack, moving away from simpl
 *   [x] Verify data flows into Kafka correctly using a simple console consumer or a UI like Kafka-UI.
 
 ### Phase 3: Real-Time Stream Processing (Apache Flink)
-*   [ ] Add **Apache Flink** (JobManager and TaskManager) to the Docker Compose setup.
-*   [ ] Write a Flink job to consume the telemetry stream from Kafka.
-*   [ ] Implement stream processing logic in the Flink job:
-    *   Windowing (e.g., aggregating errors per minute).
-    *   Filtering (e.g., isolating `ERROR` or `FATAL` logs).
-    *   Alert generation / Routing based on patterns.
+*   [x] Add **Apache Flink** (JobManager and TaskManager) to the Docker Compose setup.
+*   [x] Write a Flink job to consume the telemetry stream from Kafka.
+*   [x] Implement stream processing logic in the Flink job:
+    *   [x] Windowing (10-second tumbling windows aggregating metrics batches received).
+    *   [x] Filtering (isolating `ERROR`/`FATAL` logs by OTLP `severityNumber >= 17`).
+    *   [x] Alert generation / Routing (60-second error count window → `telemetry.alerts` Kafka topic via `KafkaSink`).
 
 ### Phase 4: Full System Visualization
 *   [ ] Deploy visualization tools via Docker Compose (e.g., **Prometheus** for metrics, **Grafana** for dashboards).
