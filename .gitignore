@@ -134,3 +134,6 @@ Desktop.ini
 
 # GitHub
 .github/
+
+# Agent
+.agent/

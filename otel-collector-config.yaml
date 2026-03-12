@@ -64,6 +64,23 @@ exporters:
     tls:
       insecure: true
 
+  # The kafka exporter sends data to a Kafka topic.
+  # We define two separate instances: one for metrics, one for logs.
+  kafka/metrics:
+    # broker list (using the internal Docker network name)
+    brokers:
+      - kafka:29092
+    protocol_version: 2.0.0
+    # The topic to publish to.
+    topic: telemetry.metrics
+
+  kafka/logs:
+    brokers:
+      - kafka:29092
+    protocol_version: 2.0.0
+    # The topic to publish to.
+    topic: telemetry.logs
+
 extensions:
   # The health_check extension exposes a /health endpoint on port 13133.
   # Used by Docker's healthcheck to know when the Collector is ready.
@@ -81,17 +98,20 @@ service:
     # Traces pipeline: receives OTLP spans → batches them → sends to BOTH:
     #   1. debug   → Collector stdout (so we can still see raw span data in logs)
     #   2. jaeger  → Jaeger for visual exploration in the UI
-    #
-    # This is the power of the Collector's exporter fan-out:
-    # one pipeline can write to multiple backends simultaneously.
-    # The app doesn't know or care that both backends exist.
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [debug, otlp/jaeger]
 
-    # Metrics pipeline: same flow for metrics
+    # Metrics pipeline: receives OTLP metrics → batches them → sends to Kafka!
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      # Notice we changed 'debug' to 'kafka/metrics'
+      exporters: [kafka/metrics]
+      
+    # Logs pipeline: receives OTLP logs → batches them → sends to Kafka!
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [kafka/logs]

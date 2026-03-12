@@ -32,9 +32,9 @@ We are simulating a production-grade observability stack, moving away from simpl
 *   [x] Add local visualization (e.g. Jaeger) to verify trace generation.
 
 ### Phase 2: Decoupling with a Message Broker (Kafka)
-*   [ ] Add **Apache Kafka** to the `docker-compose.yml` stack.
-*   [ ] Reconfigure the OpenTelemetry Collector to export logs and metrics to a specific Kafka topic instead of just standard out.
-*   [ ] Verify data flows into Kafka correctly using a simple console consumer or a UI like Kafka-UI.
+*   [x] Add **Apache Kafka** to the `docker-compose.yml` stack.
+*   [x] Reconfigure the OpenTelemetry Collector to export logs and metrics to a specific Kafka topic instead of just standard out.
+*   [x] Verify data flows into Kafka correctly using a simple console consumer or a UI like Kafka-UI.
 
 ### Phase 3: Real-Time Stream Processing (Apache Flink)
 *   [ ] Add **Apache Flink** (JobManager and TaskManager) to the Docker Compose setup.
