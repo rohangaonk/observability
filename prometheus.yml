@@ -1,0 +1,41 @@
+# prometheus.yml — Prometheus scrape configuration
+#
+# This file tells Prometheus WHERE to find metrics to scrape and HOW OFTEN.
+# Every entry in 'scrape_configs' is a "job" — a named group of targets.
+#
+# The Prometheus pull model works like this:
+#   1. Prometheus reads this config on startup
+#   2. Every `scrape_interval` seconds, it GETs <target>/metrics
+#   3. The response is in the Prometheus exposition format (plain text, key=value)
+#   4. Prometheus parses and stores each metric as a time-series in its TSDB
+
+global:
+  # How often to scrape each target by default.
+  # 15s is the standard for production; fine for our learning environment.
+  scrape_interval: 15s
+
+  # How long to wait for a scrape response before timing out.
+  scrape_timeout: 10s
+
+scrape_configs:
+  # ─────────────────────────────────────────────────────────────────
+  # Job: otel-collector
+  # Scrapes the Prometheus exporter endpoint we configured on the
+  # OTel Collector, at port 8889. This is the bridge:
+  #   NestJS (push/OTLP) → Collector → :8889/metrics ← Prometheus (pull)
+  # ─────────────────────────────────────────────────────────────────
+  - job_name: "otel-collector"
+    static_configs:
+      # "otel-collector" resolves to the container via Docker's internal DNS.
+      # Port 8889 is the prometheus exporter endpoint we set in the Collector config.
+      - targets: ["otel-collector:8889"]
+
+  # ─────────────────────────────────────────────────────────────────
+  # Job: prometheus (self-monitoring)
+  # Prometheus scrapes its own /metrics endpoint so you can monitor
+  # the scraper itself — how many samples ingested, scrape durations, etc.
+  # This is a standard best practice: observe your observers.
+  # ─────────────────────────────────────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -83,6 +83,18 @@ exporters:
     topic: telemetry.logs
     encoding: otlp_json
 
+  # The prometheus exporter turns the Collector into a Prometheus scrape target.
+  # Instead of PUSHING metrics somewhere, it EXPOSES them at an HTTP endpoint.
+  # Prometheus will periodically GET http://otel-collector:8889/metrics and pull
+  # the data itself. This is the "bridge" from OTel's push model to Prometheus'
+  # pull model — no code changes needed in the NestJS app.
+  #
+  # namespace: adds a prefix to every metric name (e.g. "otel_process_up").
+  # This helps distinguish OTel-sourced metrics in Prometheus from other sources.
+  prometheus:
+    endpoint: "0.0.0.0:8889"   # Prometheus will scrape this endpoint
+    namespace: otel             # Prefix all metric names with "otel_"
+
 extensions:
   # The health_check extension exposes a /health endpoint on port 13133.
   # Used by Docker's healthcheck to know when the Collector is ready.
@@ -105,12 +117,16 @@ service:
       processors: [memory_limiter, batch]
       exporters: [debug, otlp/jaeger]
 
-    # Metrics pipeline: receives OTLP metrics → batches them → sends to Kafka!
+    # Metrics pipeline: receives OTLP metrics → batches them → sends to BOTH:
+    #   1. kafka/metrics → Kafka topic for Flink stream processing
+    #   2. prometheus    → HTTP endpoint for Prometheus to scrape
+    # Having two exporters here means the same data goes to both sinks
+    # simultaneously — Kafka for real-time alerting via Flink, and
+    # Prometheus for persistent storage and Grafana dashboards.
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      # Notice we changed 'debug' to 'kafka/metrics'
-      exporters: [kafka/metrics]
+      exporters: [kafka/metrics, prometheus]
       
     # Logs pipeline: receives OTLP logs → batches them → sends to Kafka!
     logs:

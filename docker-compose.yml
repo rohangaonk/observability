@@ -22,11 +22,11 @@ services:
       - "4317:4317"   # OTLP gRPC receiver  — used by gRPC-based SDKs
       - "4318:4318"   # OTLP HTTP receiver  — used by our NestJS app
       - "13133:13133" # Health check endpoint — GET /health returns 200 when ready
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:13133/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - "8889:8889"   # Prometheus scrape endpoint — GET /metrics in Prometheus text format
+    # NOTE: The otel-collector-contrib image is fully distroless — no shell, no curl,
+    # no wget. A CMD-based healthcheck is not possible in this image.
+    # Prometheus handles a temporarily unavailable scrape target gracefully by
+    # retrying on each scrape interval, so no healthcheck is needed here.
     depends_on:
       jaeger:
         condition: service_started  # Wait for Jaeger to be up before the Collector starts forwarding
@@ -150,3 +150,84 @@ services:
     volumes:
       - ./flink-jobs:/opt/flink/usrlib
     restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
+  # Prometheus — time-series metrics storage + scraper
+  # Role: periodically pulls metrics from the OTel Collector's /metrics
+  #       endpoint and stores them as time-series data in its built-in TSDB.
+  #
+  # This is the critical concept to internalize: Prometheus is PULL-based.
+  # It controls WHEN and HOW OFTEN data is collected (via scrape_interval).
+  # The OTel Collector's prometheus exporter just holds that data ready.
+  # ─────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"  # Prometheus UI and HTTP API — open this to query metrics directly
+    volumes:
+      # Mount our scrape config. This is the only required config for Prometheus.
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      # Named volume for persistent storage — metrics survive container restarts.
+      # Without this, every restart loses all historical data.
+      - prometheus_data:/prometheus
+    command:
+      # Tell Prometheus where to find its config (our mounted file)
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      # How long to retain data. 15 days is fine for local dev.
+      - "--storage.tsdb.retention.time=15d"
+      # Enable the remote-write receiver API (useful to understand the push vs pull options)
+      - "--web.enable-remote-write-receiver"
+    depends_on:
+      otel-collector:
+        condition: service_started  # Collector starts immediately; Prometheus will retry failed scrapes
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
+  # Grafana — visualization and dashboarding
+  # Role: queries Prometheus (and other data sources) via PromQL and
+  #       renders interactive dashboards.
+  #
+  # Grafana itself stores NO metric data. It's a pure query + render layer.
+  # Every panel on a dashboard is just a PromQL query executed against
+  # Prometheus at render time. This separation is intentional:
+  #   - Change your storage backend → only update the datasource
+  #   - Dashboards remain unchanged
+  # ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"  # Grafana UI — host:3001 → container:3000 (3000 is reserved for the NestJS app)
+    environment:
+      # Default admin credentials for local dev.
+      # In production these would come from secrets, not env vars.
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Disable the signup page — not needed locally
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      # Persistent storage for dashboards, data source configs, and settings.
+      # Without this, every Grafana restart loses all your configured dashboards.
+      - grafana_data:/var/lib/grafana
+      # Provisioning: Grafana reads this directory on startup to auto-configure
+      # datasources and dashboard providers — no manual UI setup required.
+      # The subdirectory name (datasources/, dashboards/) is significant:
+      # Grafana routes each subfolder to the corresponding provisioning type.
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      # The actual dashboard JSON files. The path here must match the
+      # 'path' field in grafana/provisioning/dashboards/dashboards.yml.
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────────────
+# Named volumes
+# Docker manages these on disk outside the project folder.
+# Declaring them here makes them shareable across services and
+# survives `docker compose down` (but NOT `docker compose down -v`).
+# ─────────────────────────────────────────────────────────────────
+volumes:
+  prometheus_data: {}  # Stores Prometheus time-series data across restarts
+  grafana_data: {}     # Stores Grafana dashboards, datasource configs, and settings

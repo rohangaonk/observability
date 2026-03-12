@@ -1,0 +1,29 @@
+# Grafana Datasource Provisioning
+#
+# "Provisioning" means Grafana reads this file on startup and automatically
+# configures the datasource — no manual UI clicks required. This is
+# "observability as code": the datasource config lives in version control
+# alongside the rest of the stack.
+#
+# Without provisioning, you'd log in to Grafana, go to
+# Configuration → Data Sources → Add, fill out the form, and click Save.
+# That config lives inside the grafana_data Docker volume and is invisible
+# to anyone reading the repo. Provisioning makes it explicit and reproducible.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    # uid is a stable identifier we use in dashboard JSON to reference this
+    # datasource. If we used the auto-generated ID, it would change on every
+    # fresh Grafana install and break all dashboard queries.
+    uid: prometheus-local
+    url: http://prometheus:9090  # internal Docker DNS — Grafana talks to Prometheus on the Docker network
+    access: proxy                # "proxy" = Grafana backend makes the request (not your browser)
+    isDefault: true              # pre-selected when adding new panels
+    jsonData:
+      # Tell Grafana the scrape interval so it aligns its step calculations.
+      # Must match global.scrape_interval in prometheus.yml.
+      # If mismatched, you'll see "Expected X got Y" resolution warnings in panels.
+      timeInterval: "15s"

@@ -1,0 +1,30 @@
+# Grafana Dashboard Provider Provisioning
+#
+# This file tells Grafana WHERE to look for dashboard JSON files and HOW
+# to load them. Without this, Grafana won't know to scan a directory for
+# dashboard definitions — you'd have to import them manually via the UI.
+#
+# Flow:
+#   1. Grafana reads this file on startup
+#   2. It sees "watch this directory for JSON files"
+#   3. It loads every .json file in that directory as a dashboard
+#   4. On every `updateIntervalSeconds`, it re-scans for changes
+#
+# This means: edit the JSON file → wait a few seconds → dashboard updates
+# automatically. No Grafana restart needed for dashboard changes.
+
+apiVersion: 1
+
+providers:
+  - name: default
+    type: file
+    # disableDeletion: if true, dashboards deleted in the UI won't be removed
+    # from the provider (they'll come back on next scan). Good for preventing
+    # accidental deletion of dashboards that should be code-managed.
+    disableDeletion: true
+    # How often Grafana checks the folder for new/changed JSON files (seconds)
+    updateIntervalSeconds: 10
+    options:
+      # The path inside the Grafana container where we'll mount our dashboard JSON files.
+      # This must match the volume mount in docker-compose.yml.
+      path: /var/lib/grafana/dashboards

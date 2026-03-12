@@ -45,8 +45,8 @@ We are simulating a production-grade observability stack, moving away from simpl
     *   [x] Alert generation / Routing (60-second error count window → `telemetry.alerts` Kafka topic via `KafkaSink`).
 
 ### Phase 4: Full System Visualization
-*   [ ] Deploy visualization tools via Docker Compose (e.g., **Prometheus** for metrics, **Grafana** for dashboards).
-*   [ ] Route the processed data from Flink and raw metrics/traces from the OTel Collector to these storage backends.
+*   [x] Deploy visualization tools via Docker Compose (**Prometheus** for metrics, **Grafana** for dashboards).
+*   [x] Route raw metrics from the OTel Collector to Prometheus (via `prometheus` exporter on port 8889).
 *   [ ] Build a dashboard to observe the simulated application's health, throughput, and error rates in real-time.
 
 ---
