@@ -112,6 +112,60 @@ export class AppService {
     );
   }
 
+  forceGc(): object {
+    // Step 1: snapshot heap BEFORE we do anything
+    const before = process.memoryUsage();
+
+    // Step 2: allocate ~50 MB of garbage deliberately.
+    // We create 500 arrays of 10 000 numbers each. Numbers in V8 are 8-byte doubles,
+    // so 500 × 10 000 × 8 bytes = ~40 MB on the heap. These arrays go out of scope
+    // the instant the loop ends — making them eligible for collection immediately.
+    // This is the "spike" you'll see on the Grafana heap graph before the drop.
+    const garbage: number[][] = [];
+    for (let i = 0; i < 500; i++) {
+      garbage.push(new Array(10_000).fill(Math.random()));
+    }
+    // Touch the array so the compiler doesn't optimize it away
+    this.logger.debug(`Allocated ${garbage.length} garbage arrays`);
+
+    // Step 3: snapshot heap AFTER allocation (the "spike" moment)
+    const afterAlloc = process.memoryUsage();
+
+    // Step 4: release references — garbage arrays are now collectable
+    garbage.length = 0;
+
+    // Step 5: force a synchronous, full "stop-the-world" GC.
+    // global.gc() is ONLY available when Node is started with --expose-gc.
+    // Without it, this function is undefined and we skip gracefully.
+    const gcAvailable = typeof (global as any).gc === 'function';
+    if (gcAvailable) {
+      (global as any).gc();
+    }
+
+    // Step 6: snapshot heap AFTER GC (the "drop" moment)
+    const afterGc = process.memoryUsage();
+
+    const toMB = (b: number) => (b / 1024 / 1024).toFixed(2) + ' MB';
+
+    this.logger.log(
+      `GC triggered — heap: ${toMB(before.heapUsed)} → ${toMB(afterAlloc.heapUsed)} (alloc) → ${toMB(afterGc.heapUsed)} (after GC)`,
+    );
+
+    return {
+      gcAvailable,
+      heapUsed: {
+        before: toMB(before.heapUsed),
+        afterAllocation: toMB(afterAlloc.heapUsed),
+        afterGc: toMB(afterGc.heapUsed),
+        reclaimed: toMB(afterAlloc.heapUsed - afterGc.heapUsed),
+      },
+      heapTotal: {
+        before: toMB(before.heapTotal),
+        afterGc: toMB(afterGc.heapTotal),
+      },
+    };
+  }
+
   private simulateLatency(min: number, max: number): Promise<void> {
     const delay = Math.floor(Math.random() * (max - min + 1)) + min;
     return new Promise((resolve) => setTimeout(resolve, delay));

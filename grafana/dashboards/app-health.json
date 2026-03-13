@@ -367,13 +367,13 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus-local" },
-          "expr": "otel_v8js_memory_heap_used_bytes",
+          "expr": "sum(otel_v8js_memory_heap_used_bytes{exported_job=\"observability-app\"})",
           "legendFormat": "Heap Used"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus-local" },
-          "expr": "otel_v8js_memory_heap_limit_bytes",
+          "expr": "sum(otel_v8js_memory_heap_limit_bytes{exported_job=\"observability-app\"})",
           "legendFormat": "Heap Limit"
         }
       ],

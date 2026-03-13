@@ -4,6 +4,7 @@ import {
   Param,
   HttpException,
   HttpStatus,
+  Post,
 } from '@nestjs/common';
 import { AppService } from './app.service';
 
@@ -37,5 +38,14 @@ export class AppController {
     @Param('id') id: string,
   ): Promise<{ userId: string; name: string }> {
     return this.appService.getUser(id);
+  }
+
+  // Debug endpoint: allocates garbage then triggers a manual full GC.
+  // Requires Node to be started with --expose-gc.
+  // Hit this endpoint and immediately watch the Grafana heap panel — you'll
+  // see "Heap Used" spike (allocations) then sharply drop (GC reclaimed them).
+  @Post('debug/gc')
+  async forceGc(): Promise<object> {
+    return this.appService.forceGc();
   }
 }

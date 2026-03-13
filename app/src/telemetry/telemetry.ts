@@ -7,7 +7,6 @@
  */
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { ConsoleSpanExporter } from '@opentelemetry/sdk-trace-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
@@ -30,35 +29,29 @@ const resource = resourceFromAttributes({
 });
 
 // --- Trace Exporter ---
-// An Exporter is the "sink" — where completed spans are sent.
-//
-// Phase 1 (now): ConsoleSpanExporter prints spans to stdout in JSON so you can see
-//   the raw structure: traceId, spanId, parentSpanId, duration, attributes, status.
-//   This is the best way to understand what a span actually IS before visualising it.
-//
-// Phase 1 (later): OTLPTraceExporter sends spans over HTTP to the OTel Collector.
-//   We switch to this when the Collector is running (next step).
-//   The URL points to the Collector's OTLP/HTTP receiver endpoint.
-const traceExporter = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-  ? new OTLPTraceExporter({
-      // The Collector listens on 4318 for OTLP over HTTP (4317 is gRPC).
-      // /v1/traces is the standard OTLP traces path.
-      url: `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`,
-    })
-  : new ConsoleSpanExporter(); // Fallback: print to console if no Collector configured
+// OTLPTraceExporter sends completed spans over HTTP to the OTel Collector.
+// The Collector listens on 4318 for OTLP/HTTP; /v1/traces is the standard path.
+// We default to localhost:4318 so the app works out of the box whether run
+// directly or inside Docker (override via OTEL_EXPORTER_OTLP_ENDPOINT).
+// ConsoleSpanExporter has been removed — at 10 RPS it would produce ~100 JSON
+// objects per second in the terminal, making the output unreadable.
+const otlpEndpoint =
+  process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4318';
+
+const traceExporter = new OTLPTraceExporter({
+  url: `${otlpEndpoint}/v1/traces`,
+});
 
 // --- Metric Exporter ---
 // Metrics follow the same exporter pattern as traces.
 // We push metrics to the Collector every 10 seconds (PeriodicExportingMetricReader).
 // If no Collector is configured, metrics are simply not exported (no console equivalent).
-const metricReader = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-  ? new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter({
-        url: `${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}/v1/metrics`,
-      }),
-      exportIntervalMillis: 10_000, // Push metrics every 10 seconds
-    })
-  : undefined;
+const metricReader = new PeriodicExportingMetricReader({
+  exporter: new OTLPMetricExporter({
+    url: `${otlpEndpoint}/v1/metrics`,
+  }),
+  exportIntervalMillis: 10_000, // Push metrics every 10 seconds
+});
 
 // --- Auto-Instrumentation ---
 // getNodeAutoInstrumentations() returns a bundle of instrumentations that
@@ -82,20 +75,14 @@ const instrumentations = [
 const sdk = new NodeSDK({
   resource,
   traceExporter,
-  ...(metricReader ? { metricReader } : {}),
+  metricReader,
   instrumentations,
 });
 
 // Start the SDK synchronously before any other module loads.
 // This is what actually installs the monkey-patches on http, express, etc.
 sdk.start();
-console.log(
-  `[OTel] SDK started — exporting traces to: ${
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-      ? process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-      : 'console (no OTEL_EXPORTER_OTLP_ENDPOINT set)'
-  }`,
-);
+console.log(`[OTel] SDK started — exporting to: ${otlpEndpoint}`);
 
 // Graceful shutdown: flush any buffered spans before the process exits.
 // Without this, spans in the buffer are lost when you Ctrl+C the app.

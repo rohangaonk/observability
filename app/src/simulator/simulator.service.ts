@@ -22,12 +22,13 @@ export class SimulatorService implements OnApplicationBootstrap {
 
   // Fires once when all modules are initialized — confirms the simulator is live
   onApplicationBootstrap() {
-    this.logger.log('Traffic simulator started — firing requests every 2s');
+    this.logger.log('Traffic simulator started — firing 10 requests/s (every 100ms)');
   }
 
-  // @Interval fires this method every 2000ms (2 seconds)
-  // This is what generates the continuous stream of telemetry we'll observe
-  @Interval(2000)
+  // @Interval fires this method every 100ms → 10 requests per second.
+  // At this rate the terminal log line per request would be overwhelming,
+  // so consider log-sampling or reducing NestJS log verbosity if needed.
+  @Interval(100)
   async fireRequest(): Promise<void> {
     // Pick a random endpoint from the weighted pool
     const path =
