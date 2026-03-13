@@ -1,0 +1,98 @@
+# ─────────────────────────────────────────────────────────────────
+# Loki Configuration
+#
+# Loki is Grafana's log aggregation system. The key concept to internalize:
+#
+#   Loki does NOT index log content.
+#
+# Traditional log systems (Elasticsearch, Splunk) tokenize and index every
+# word in every log line. This makes any substring searchable instantly,
+# but is extremely expensive in storage and CPU.
+#
+# Loki instead indexes only LABELS — small key-value metadata pairs like:
+#   {service_name="nestjs-app", severity="ERROR"}
+#
+# The raw log body is stored as compressed binary chunks (chunks of time-ordered
+# log lines per label set). To search WITHIN logs, you use a scan (| grep-like
+# filter in LogQL) which is slower, but the label filtering narrows the chunks
+# scanned dramatically.
+#
+# This tradeoff makes Loki 10-100x cheaper than Elasticsearch at scale,
+# at the cost of requiring you to choose labels wisely upfront.
+# ─────────────────────────────────────────────────────────────────
+
+auth_enabled: false  # Single-tenant mode — no Authorization header required.
+                     # In production multi-tenant Loki, each tenant has isolated
+                     # storage and must pass an "X-Scope-OrgID" header.
+
+server:
+  http_listen_port: 3100  # Loki's HTTP API and push endpoint.
+                          # The OTel Collector's loki exporter will POST to:
+                          #   http://loki:3100/loki/api/v1/push
+
+common:
+  # In a real deployment, storage would point to S3, GCS, or Azure Blob.
+  # Locally, we use the filesystem. This is Loki's biggest strength at scale:
+  # object storage is extremely cheap vs. an Elasticsearch cluster.
+  path_prefix: /var/loki
+  storage:
+    filesystem:
+      chunks_directory: /var/loki/chunks   # Compressed log data stored here
+      rules_directory: /var/loki/rules     # Alerting rules (not used now)
+  replication_factor: 1  # Single node — no replication needed locally
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory  # Cluster coordination via in-memory store (single node only)
+
+# ─────────────────────────────────────────────────────────────────
+# Schema Config
+#
+# Loki uses a versioned chunk/index schema. "tsdb" (Time Series DB) is the
+# current recommended index type. The "from" date tells Loki which schema
+# to use for chunks written after that date — important if you ever migrate.
+# ─────────────────────────────────────────────────────────────────
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13           # v13 is the latest stable schema as of Loki 3.x
+      index:
+        prefix: index_
+        period: 24h         # A new index file is created every 24 hours.
+                            # This is how Loki efficiently handles time-range queries —
+                            # only the relevant index files for the queried time range
+                            # are loaded.
+
+# ─────────────────────────────────────────────────────────────────
+# Limits Config
+#
+# These limits protect Loki from being overwhelmed by bad label cardinality.
+# "Cardinality" = the number of unique label value combinations.
+#
+# HIGH CARDINALITY LABELS ARE THE #1 MISTAKE WITH LOKI.
+# Example of a BAD label: {user_id="u123456"} — millions of unique values
+# Example of a GOOD label: {service_name="orders-api", severity="ERROR"}
+#
+# High cardinality explodes the number of chunk files and index entries,
+# destroying the performance advantage Loki is designed to provide.
+# ─────────────────────────────────────────────────────────────────
+limits_config:
+  allow_structured_metadata: true   # Allows OTLP-style structured log fields
+                                    # to be stored alongside log lines.
+                                    # Required for the OTel Collector loki exporter
+                                    # to push OTLP logs with their attribute maps.
+  reject_old_samples: true          # Reject log lines older than max_sample_age.
+                                    # Prevents accidentally re-ingesting old data.
+  reject_old_samples_max_age: 168h  # 7 days — anything older is rejected.
+  volume_enabled: true              # Enables the log volume API used by Grafana's
+                                    # Explore Logs feature to show log distribution
+                                    # over time per label.
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true    # In-memory query result cache.
+        max_size_mb: 100 # Speeds up repeated Grafana dashboard queries.

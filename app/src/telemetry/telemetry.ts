@@ -9,7 +9,9 @@
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 // In OTel SDK v2, the `Resource` class was replaced by the `resourceFromAttributes` function.
 // The concept is the same: attach key-value metadata to everything this process emits.
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -68,6 +70,25 @@ const instrumentations = [
   }),
 ];
 
+// --- Log Exporter ---
+// OTel Logs is the third pillar alongside Traces and Metrics.
+//
+// The BatchLogRecordProcessor works exactly like BatchSpanProcessor for traces:
+// it buffers log records in memory and flushes them in batches to the Collector.
+//
+// The Collector receives them on /v1/logs and routes them to Loki (and Kafka).
+//
+// Important: this does NOT automatically capture console.log / NestJS Logger calls.
+// To get NestJS logs flowing through OTel, we use a custom LoggerService
+// (see otel-logger.service.ts) that explicitly calls the OTel Logs API.
+// This is intentional — you choose what goes through OTel, avoiding accidental
+// export of internal NestJS framework noise.
+const logExporter = new OTLPLogExporter({
+  url: `${otlpEndpoint}/v1/logs`,
+});
+
+const logRecordProcessor = new BatchLogRecordProcessor(logExporter);
+
 // --- SDK Assembly ---
 // NodeSDK is the batteries-included entry point for Node.js.
 // It wires together: resource + exporters + instrumentations + a BatchSpanProcessor
@@ -76,6 +97,11 @@ const sdk = new NodeSDK({
   resource,
   traceExporter,
   metricReader,
+  // Wire the log processor into the SDK so it shares the same resource/context
+  // as traces and metrics. This enables trace_id correlation in log records —
+  // when a log is emitted inside an active span, the SDK automatically attaches
+  // the trace_id and span_id to the log record.
+  logRecordProcessors: [logRecordProcessor],
   instrumentations,
 });
 

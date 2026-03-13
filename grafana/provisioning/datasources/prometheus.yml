@@ -27,3 +27,27 @@ datasources:
       # Must match global.scrape_interval in prometheus.yml.
       # If mismatched, you'll see "Expected X got Y" resolution warnings in panels.
       timeInterval: "15s"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Loki datasource
+  #
+  # Loki is queried using LogQL — a query language that looks like PromQL
+  # but operates on log streams instead of time-series metrics.
+  #
+  # Basic LogQL anatomy:
+  #   {service_name="nestjs-app"}              → stream selector (label filter)
+  #   {service_name="nestjs-app"} |= "ERROR"  → + content filter (slower scan)
+  #   rate({level="ERROR"}[1m])               → metric query over log counts
+  #
+  # uid: "loki-local" — we set a stable uid so we can later use it in
+  # Grafana panel JSON to create Loki → Tempo trace correlation links.
+  # ─────────────────────────────────────────────────────────────────
+  - name: Loki
+    type: loki
+    uid: loki-local
+    url: http://loki:3100         # Internal Docker DNS
+    access: proxy
+    isDefault: false
+    jsonData:
+      maxLines: 1000              # Max log lines returned per query in Explore.
+                                  # Increase if you need more history per query.

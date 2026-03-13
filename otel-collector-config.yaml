@@ -83,6 +83,28 @@ exporters:
     topic: telemetry.logs
     encoding: otlp_json
 
+  # Since Loki 3.0, Loki has a native OTLP ingestion endpoint.
+  # This means we don't need a special "loki" exporter at all —
+  # we just use the standard otlphttp exporter pointed at Loki's OTLP path.
+  #
+  # How it works:
+  #   The otlphttp exporter sends logs (and only logs, because this exporter
+  #   is only used in the logs pipeline below) to Loki's OTLP endpoint.
+  #   The Collector appends "/v1/logs" to the endpoint automatically.
+  #   So the full URL becomes: http://loki:3100/otlp/v1/logs
+  #
+  # Loki then converts the OTLP log records using its built-in attribute mapping:
+  #   - "service.name" resource attribute → {service_name="..."} label
+  #   - "deployment.environment" → {deployment_environment="..."} label
+  #   - Everything else → stored as structured metadata (not indexed)
+  #
+  # This is the recommended approach as of Loki 3.x. The old "loki" exporter
+  # (which did the conversion inside the Collector) is deprecated.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true  # No TLS needed for internal Docker network communication
+
   # The prometheus exporter turns the Collector into a Prometheus scrape target.
   # Instead of PUSHING metrics somewhere, it EXPOSES them at an HTTP endpoint.
   # Prometheus will periodically GET http://otel-collector:8889/metrics and pull
@@ -128,8 +150,14 @@ service:
       processors: [memory_limiter, batch]
       exporters: [kafka/metrics, prometheus]
       
-    # Logs pipeline: receives OTLP logs → batches them → sends to Kafka!
+    # Logs pipeline: receives OTLP logs → batches them → sends to TWO sinks:
+    #   1. kafka/logs      → Kafka topic (for Flink stream processing)
+    #   2. otlphttp/loki   → Loki's native OTLP endpoint (for persistent log storage)
+    #
+    # Both exporters receive the identical log stream simultaneously.
+    # Kafka is the real-time processing path (Flink reads from it).
+    # Loki is the storage/query path (Grafana reads from it).
     logs:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [kafka/logs]
+      exporters: [kafka/logs, otlphttp/loki]

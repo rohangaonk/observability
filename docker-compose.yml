@@ -30,6 +30,8 @@ services:
     depends_on:
       jaeger:
         condition: service_started  # Wait for Jaeger to be up before the Collector starts forwarding
+      loki:
+        condition: service_healthy  # Wait for Loki to be ready before pushing logs to it
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────
@@ -152,6 +154,39 @@ services:
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────
+  # Grafana Loki — log aggregation and storage
+  # Role: receives logs from the OTel Collector and stores them as
+  #       compressed chunks indexed by labels (not by log content).
+  #
+  # Key concept: Loki is intentionally "dumb" about log content.
+  # It indexes ONLY the labels you attach (e.g. service_name, severity).
+  # The raw log body is compressed and stored cheaply. This makes Loki
+  # orders of magnitude cheaper than Elasticsearch at scale.
+  #
+  # The OTel Collector's loki exporter pushes logs via HTTP to:
+  #   http://loki:3100/loki/api/v1/push
+  # ─────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: loki
+    user: "0"         # Run as root so Loki can create /var/loki/chunks and /var/loki/rules
+                      # on the Docker named volume (which is initially root-owned).
+                      # This is standard for local dev — production Loki uses object storage
+                      # (S3/GCS) so filesystem permissions are not a concern there.
+    ports:
+      - "3100:3100"  # Loki HTTP API — push endpoint and query API
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml  # Mount our config
+      - loki_data:/var/loki                              # Persistent chunk + index storage
+    command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
   # Prometheus — time-series metrics storage + scraper
   # Role: periodically pulls metrics from the OTel Collector's /metrics
   #       endpoint and stores them as time-series data in its built-in TSDB.
@@ -220,6 +255,7 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
+      - loki        # Wait for Loki to start so the datasource connection check succeeds on first boot
     restart: unless-stopped
 
 # ─────────────────────────────────────────────────────────────────
@@ -231,3 +267,4 @@ services:
 volumes:
   prometheus_data: {}  # Stores Prometheus time-series data across restarts
   grafana_data: {}     # Stores Grafana dashboards, datasource configs, and settings
+  loki_data: {}        # Stores Loki compressed log chunks and index files
