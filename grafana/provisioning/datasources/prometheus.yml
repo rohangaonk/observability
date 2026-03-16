@@ -51,3 +51,25 @@ datasources:
     jsonData:
       maxLines: 1000              # Max log lines returned per query in Explore.
                                   # Increase if you need more history per query.
+
+  # ─────────────────────────────────────────────────────────────────
+  # Tempo datasource — distributed trace backend
+  #
+  # Grafana queries Tempo by trace ID. The typical flow is:
+  #   1. You see a log line in Loki Explore containing a traceID field.
+  #   2. You click the trace ID → Grafana sends GET /api/traces/{traceID} to Tempo.
+  #   3. Tempo returns the full span tree → Grafana renders the waterfall.
+  #
+  # In Phase 7 step 3 we'll wire Loki → Tempo and Prometheus → Tempo links
+  # so this click-through works automatically. For now we register the
+  # datasource so Tempo is selectable in Explore.
+  #
+  # uid: "tempo-local" — we set a stable uid so Loki and Prometheus datasource
+  # configs can reference it by ID when we add correlation links next.
+  # ─────────────────────────────────────────────────────────────────
+  - name: Tempo
+    type: tempo
+    uid: tempo-local
+    url: http://tempo:3200   # Tempo HTTP API — internal Docker DNS
+    access: proxy
+    isDefault: false

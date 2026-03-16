@@ -53,25 +53,32 @@ We are simulating a production-grade observability stack, moving away from simpl
 *   [x] Build a dashboard to observe the simulated application's health, throughput, and error rates in real-time.
 
 ### Phase 5: Log Storage with Loki (OTel Collector → Loki)
-*   [ ] Deploy **Grafana Loki** via Docker Compose.
-*   [ ] Add the `loki` exporter to the OTel Collector pipeline so raw logs flow directly: `NestJS → OTel Collector → Loki`.
-*   [ ] Add Loki as a datasource in Grafana.
-*   [ ] Write basic **LogQL** queries in Grafana Explore to filter logs by severity, service name, and time range.
+*   [x] Deploy **Grafana Loki** via Docker Compose.
+*   [x] Add the `loki` exporter to the OTel Collector pipeline so raw logs flow directly: `NestJS → OTel Collector → Loki`.
+*   [x] Add Loki as a datasource in Grafana.
+*   [x] Write basic **LogQL** queries in Grafana Explore to filter logs by severity, service name, and time range.
 
 ### Phase 6: Close the Flink Loop (Flink Alerts → Loki)
-*   [ ] Write a Loki HTTP push consumer in the Flink job that reads from the `telemetry.alerts` Kafka topic.
-*   [ ] Push Flink-generated alert records into Loki under a dedicated label (e.g. `job="flink-alerts"`).
-*   [ ] Verify in Grafana: Loki holds both raw app logs (from Collector) and processed alert events (from Flink) — query and compare them.
+*   [x] Write a Loki HTTP push consumer in the Flink job that reads from the `telemetry.alerts` Kafka topic.
+*   [x] Push Flink-generated alert records into Loki under a dedicated label (e.g. `job="flink-alerts"`).
+*   [x] Verify in Grafana: Loki holds both raw app logs (from Collector) and processed alert events (from Flink) — query and compare them.
+
+**Phase 6 summary:**
+Flink now consumes alert events from Kafka and pushes them to Loki with a dedicated label. Grafana can query and compare both raw logs and processed alerts side by side. This closes the loop: processed alerts are now visible and queryable.
+
 
 ### Phase 7: Trace Storage with Tempo + Unified Correlation
-*   [ ] Deploy **Grafana Tempo** via Docker Compose as the trace backend.
+*   [x] Deploy **Grafana Tempo** via Docker Compose as the trace backend.
 *   [ ] Reconfigure the OTel Collector to export traces to Tempo (replacing or alongside Jaeger).
 *   [ ] Configure Grafana datasource links: Loki → Tempo (click a trace ID in a log line → jump to the trace).
 *   [ ] Configure Prometheus exemplars → Tempo (click a metrics spike → jump to a representative trace).
 *   [ ] Explore a full correlation flow in Grafana: metrics spike → trace → logs for that request.
 
+**Phase 7 progress:**
+Tempo is deployed, traces are flowing, and Grafana is provisioned with the Tempo datasource. Next step: reconfigure OTel Collector to export traces to Tempo (replacing Jaeger).
+
 ---
 **Note for future sessions:**
 * Read this `roadmap.md` to understand current progress. Mark the checkboxes `[x]` as we complete each step.
 * All infrastructure should be kept locally runnable via Docker Compose.
-* Current architecture: `NestJS → OTel Collector → [Kafka → Flink → telemetry.alerts (Kafka, unread)], [Prometheus → Grafana], [Jaeger]`. Next: Phase 5 — add Loki.
+* Current architecture: `NestJS → OTel Collector → [Kafka → Flink → telemetry.alerts (Kafka, unread)], [Prometheus → Grafana], [Jaeger], [Loki]`. Next: Phase 6 — close the Flink loop (Flink Alerts → Loki).

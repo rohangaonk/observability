@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from urllib import request, error
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer, KafkaSink, KafkaRecordSerializationSchema, DeliveryGuarantee
 from pyflink.common.watermark_strategy import WatermarkStrategy
@@ -111,6 +112,88 @@ def format_alert(record):
     return json.dumps(alert)
 
 
+# ─────────────────────────────────────────────────────────────────
+# STREAM 3 — Alert Forwarder (Kafka telemetry.alerts → Loki HTTP Push)
+# ─────────────────────────────────────────────────────────────────
+
+def build_loki_push_payload(alert_json_string):
+    """
+    Builds a Loki /loki/api/v1/push payload from one alert JSON string.
+
+    Loki expects:
+      {
+        "streams": [
+          {
+            "stream": {"label": "value"},
+            "values": [["<unix_ns>", "<log line>"]]
+          }
+        ]
+      }
+
+    We keep labels intentionally low-cardinality (pipeline/env/level) so Loki
+    indexes efficiently. The full alert stays in the log line for rich querying.
+    """
+    parsed = json.loads(alert_json_string)
+
+    # If Flink already included "ts" in seconds, convert to ns for Loki.
+    # If not present, use current wall-clock ns.
+    ts_seconds = parsed.get("ts")
+    if isinstance(ts_seconds, int):
+        ts_ns = ts_seconds * 1_000_000_000
+    else:
+        ts_ns = time.time_ns()
+
+    # Keep labels stable; avoid putting dynamic IDs in labels.
+    stream_labels = {
+        "pipeline": "flink-alert-forwarder",
+        "env": os.getenv("OBS_ENV", "local"),
+        "level": str(parsed.get("level", "UNKNOWN")),
+    }
+
+    return {
+        "streams": [
+            {
+                "stream": stream_labels,
+                # Loki requires timestamp as string in Unix ns.
+                "values": [[str(ts_ns), alert_json_string]],
+            }
+        ]
+    }
+
+
+def push_alert_to_loki(alert_json_string):
+    """
+    Sends one alert event to Loki using the HTTP push API.
+
+    This function runs as a map() transform on the telemetry.alerts stream.
+    It returns a status string so we can print success/failure in Flink logs.
+    """
+    loki_push_url = os.getenv("LOKI_PUSH_URL", "http://loki:3100/loki/api/v1/push")
+    timeout_seconds = float(os.getenv("LOKI_PUSH_TIMEOUT_SECONDS", "2"))
+
+    try:
+        payload = build_loki_push_payload(alert_json_string)
+        body = json.dumps(payload).encode("utf-8")
+
+        http_request = request.Request(
+            loki_push_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with request.urlopen(http_request, timeout=timeout_seconds) as response:
+            status_code = response.getcode()
+            if 200 <= status_code < 300:
+                return f"[LOKI_PUSH_OK] status={status_code}"
+            return f"[LOKI_PUSH_FAIL] status={status_code} body={alert_json_string}"
+
+    except error.HTTPError as exc:
+        return f"[LOKI_PUSH_HTTP_ERROR] status={exc.code} reason={exc.reason}"
+    except Exception as exc:
+        return f"[LOKI_PUSH_ERROR] {str(exc)}"
+
+
 def main():
     env = StreamExecutionEnvironment.get_execution_environment()
 
@@ -138,11 +221,25 @@ def main():
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()
 
+    # ── Source 3: alerts emitted by the same Flink job to Kafka ──
+    # This source reads back from telemetry.alerts so we can forward alerts
+    # directly to Loki via HTTP push.
+    alerts_source = KafkaSource.builder() \
+        .set_bootstrap_servers(brokers) \
+        .set_topics("telemetry.alerts") \
+        .set_group_id("flink-loki-forwarder-group") \
+        .set_starting_offsets(KafkaOffsetsInitializer.latest()) \
+        .set_value_only_deserializer(SimpleStringSchema()) \
+        .build()
+
     metrics_stream = env.from_source(
         metrics_source, WatermarkStrategy.no_watermarks(), "Kafka Metrics Source"
     )
     logs_stream = env.from_source(
         logs_source, WatermarkStrategy.no_watermarks(), "Kafka Logs Source"
+    )
+    alerts_stream = env.from_source(
+        alerts_source, WatermarkStrategy.no_watermarks(), "Kafka Alerts Source"
     )
 
     # ── Pipeline 1: metrics aggregation (10-second window) ───────
@@ -205,6 +302,13 @@ def main():
     error_alerts \
         .map(format_alert, output_type=Types.STRING()) \
         .sink_to(alert_sink)
+
+    # ── Sink 3: telemetry.alerts → Loki HTTP push ──────────────────────
+    # We consume alert JSON strings from Kafka and push each to Loki.
+    # print() makes delivery status visible in `docker logs` for learning/debug.
+    alerts_stream \
+        .map(push_alert_to_loki, output_type=Types.STRING()) \
+        .print()
 
     print("Submitting job: Telemetry Processing Pipeline...")
     env.execute("Telemetry Processing Pipeline")

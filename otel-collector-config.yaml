@@ -105,6 +105,16 @@ exporters:
     tls:
       insecure: true  # No TLS needed for internal Docker network communication
 
+  # The otlp/tempo exporter forwards spans to Grafana Tempo.
+  # We name it "otlp/tempo" to distinguish it from the Jaeger exporter above.
+  # Both Jaeger and Tempo receive the same trace data simultaneously — this lets
+  # us compare them side by side while we transition. In Phase 7 step 3 we'll
+  # remove Jaeger once Tempo is confirmed working with Grafana correlation.
+  otlp/tempo:
+    endpoint: tempo:4317   # tempo = Docker container name; 4317 = Tempo's gRPC OTLP receiver
+    tls:
+      insecure: true       # No TLS needed on the internal Docker network
+
   # The prometheus exporter turns the Collector into a Prometheus scrape target.
   # Instead of PUSHING metrics somewhere, it EXPOSES them at an HTTP endpoint.
   # Prometheus will periodically GET http://otel-collector:8889/metrics and pull
@@ -137,7 +147,10 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug, otlp/jaeger]
+      # Traces now go to both Jaeger and Tempo simultaneously.
+      # Why keep both? Jaeger is already working and trusted. Tempo is new.
+      # Running them in parallel lets you verify Tempo works before removing Jaeger.
+      exporters: [debug, otlp/jaeger, otlp/tempo]
 
     # Metrics pipeline: receives OTLP metrics → batches them → sends to BOTH:
     #   1. kafka/metrics → Kafka topic for Flink stream processing

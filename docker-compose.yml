@@ -32,6 +32,8 @@ services:
         condition: service_started  # Wait for Jaeger to be up before the Collector starts forwarding
       loki:
         condition: service_healthy  # Wait for Loki to be ready before pushing logs to it
+      tempo:
+        condition: service_healthy  # Wait for Tempo to be ready before the Collector forwards traces to it
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────
@@ -154,6 +156,36 @@ services:
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────
+  # Grafana Tempo — distributed trace storage
+  # Role: receives OTLP spans from the OTel Collector and stores them
+  #       as compressed trace blocks on disk.
+  #
+  # Key difference from Jaeger:
+  #   Jaeger uses a database (Cassandra / Elasticsearch / Badger) to store spans.
+  #   Tempo stores raw trace bytes as flat files, indexed ONLY by trace ID.
+  #   This makes Tempo much cheaper at scale — no database overhead.
+  #   The tradeoff: you can only look up traces by trace ID, not by tag.
+  #   Grafana bridges this gap with Loki (logs contain trace IDs you can click).
+  # ─────────────────────────────────────────────────────────────────
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo-config.yaml:/etc/tempo.yaml       # Our pipeline config
+      - tempo_data:/var/tempo                      # Persistent trace + WAL storage
+    ports:
+      - "3200:3200"  # Tempo HTTP API — Grafana queries traces here
+      # Ports 4317/4318 are NOT exposed on the host — only the OTel Collector
+      # (inside Docker) talks to Tempo on those ports via Docker DNS (tempo:4317).
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3200/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────
   # Grafana Loki — log aggregation and storage
   # Role: receives logs from the OTel Collector and stores them as
   #       compressed chunks indexed by labels (not by log content).
@@ -256,6 +288,7 @@ services:
     depends_on:
       - prometheus
       - loki        # Wait for Loki to start so the datasource connection check succeeds on first boot
+      - tempo       # Wait for Tempo so the trace datasource is reachable on first boot
     restart: unless-stopped
 
 # ─────────────────────────────────────────────────────────────────
@@ -268,3 +301,4 @@ volumes:
   prometheus_data: {}  # Stores Prometheus time-series data across restarts
   grafana_data: {}     # Stores Grafana dashboards, datasource configs, and settings
   loki_data: {}        # Stores Loki compressed log chunks and index files
+  tempo_data: {}       # Stores Tempo raw trace blocks and WAL

@@ -1,0 +1,54 @@
+# Grafana Tempo — local development configuration
+#
+# Tempo is a distributed tracing backend. Like Loki for logs, it is designed
+# to be storage-efficient: traces are stored as raw bytes (not in a database),
+# indexed only by trace ID. This makes it very cheap at scale compared to
+# Jaeger with Cassandra/Elasticsearch.
+#
+# The architecture has three internal components:
+#   distributor  → receives incoming traces from the OTel Collector
+#   ingester     → buffers traces in a WAL (write-ahead log), flushes to storage
+#   compactor    → merges and compacts stored trace blocks over time
+
+server:
+  # Tempo's HTTP API — Grafana queries this port to fetch traces by trace ID.
+  # Also exposes /ready, /metrics, and /api/traces/{traceID} endpoints.
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    # The distributor speaks OTLP natively — same protocol the OTel Collector uses.
+    # This means the Collector forwards spans to Tempo with a standard otlp exporter,
+    # no custom plugin or protocol translation needed.
+    otlp:
+      protocols:
+        grpc:
+          # Listens on all interfaces inside the container.
+          # OTel Collector reaches this at tempo:4317 via Docker DNS.
+          endpoint: 0.0.0.0:4317
+        http:
+          # HTTP fallback — available at tempo:4318/v1/traces
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  # How long a trace can sit idle (no new spans) before being flushed.
+  # Lower = faster visibility in Grafana; higher = better batching efficiency.
+  trace_idle_period: 10s
+  # Flush a block when it reaches 1MB even if trace_idle_period hasn't expired.
+  max_block_bytes: 1_000_000
+  # Force a flush every 5 minutes regardless of size or idle period.
+  max_block_duration: 5m
+
+storage:
+  trace:
+    # "local" stores traces as files on the container filesystem.
+    # Production deployments use "gcs", "s3", or "azure" instead.
+    backend: local
+    local:
+      # Where compacted trace blocks are written.
+      # Mounted via the tempo_data Docker volume so data survives restarts.
+      path: /var/tempo/traces
+    wal:
+      # Write-ahead log — spans are written here first (fast), then flushed
+      # to the main store. If Tempo crashes mid-ingest, the WAL lets it recover.
+      path: /var/tempo/wal

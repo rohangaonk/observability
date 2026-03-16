@@ -22,7 +22,9 @@ export class SimulatorService implements OnApplicationBootstrap {
 
   // Fires once when all modules are initialized — confirms the simulator is live
   onApplicationBootstrap() {
-    this.logger.log('Traffic simulator started — firing 10 requests/s (every 100ms)');
+    this.logger.log(
+      'Traffic simulator started — firing 10 requests/s (every 100ms)',
+    );
   }
 
   // @Interval fires this method every 100ms → 10 requests per second.
