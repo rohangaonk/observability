@@ -8,7 +8,7 @@ services:
   # Image: otel/opentelemetry-collector-contrib
   #   "contrib" = the community distribution that includes extra receivers,
   #   processors, and exporters beyond the core image. We'll need the
-  #   Kafka exporter (Phase 2) and Jaeger exporter — both are contrib-only.
+  #   Kafka exporter and other backend exporters — many are contrib-only.
   # ─────────────────────────────────────────────────────────────────
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.119.0
@@ -28,36 +28,10 @@ services:
     # Prometheus handles a temporarily unavailable scrape target gracefully by
     # retrying on each scrape interval, so no healthcheck is needed here.
     depends_on:
-      jaeger:
-        condition: service_started  # Wait for Jaeger to be up before the Collector starts forwarding
       loki:
         condition: service_healthy  # Wait for Loki to be ready before pushing logs to it
       tempo:
         condition: service_healthy  # Wait for Tempo to be ready before the Collector forwards traces to it
-    restart: unless-stopped
-
-  # ─────────────────────────────────────────────────────────────────
-  # Jaeger — distributed trace visualization
-  # Role: stores spans and serves the trace waterfall UI.
-  #
-  # "all-in-one" bundles the collector, query service, and UI into one
-  # container — ideal for local development. In production you'd run
-  # these as separate services with persistent storage (Cassandra, ES).
-  #
-  # Jaeger 1.35+ accepts OTLP natively, so the OTel Collector can forward
-  # spans to it using the standard otlp exporter — no legacy Jaeger protocol needed.
-  # ─────────────────────────────────────────────────────────────────
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: jaeger
-    environment:
-      # OTLP receiver is disabled by default in Jaeger — this flag enables it.
-      # Without this, Jaeger listens on its own Thrift/gRPC protocol, not OTLP.
-      - COLLECTOR_OTLP_ENABLED=true
-    ports:
-      - "16686:16686"  # Jaeger UI — open this in your browser
-      # We do NOT expose 4317/4318 on the host — the Collector owns those ports.
-      # The Collector talks to Jaeger on port 4317 via the internal Docker network.
     restart: unless-stopped
 
   # ─────────────────────────────────────────────────────────────────
@@ -160,12 +134,8 @@ services:
   # Role: receives OTLP spans from the OTel Collector and stores them
   #       as compressed trace blocks on disk.
   #
-  # Key difference from Jaeger:
-  #   Jaeger uses a database (Cassandra / Elasticsearch / Badger) to store spans.
-  #   Tempo stores raw trace bytes as flat files, indexed ONLY by trace ID.
-  #   This makes Tempo much cheaper at scale — no database overhead.
-  #   The tradeoff: you can only look up traces by trace ID, not by tag.
-  #   Grafana bridges this gap with Loki (logs contain trace IDs you can click).
+  # Tempo stores trace data as compressed blocks and is queried by Grafana.
+  # In this stack, Tempo is the single trace backend used for correlation.
   # ─────────────────────────────────────────────────────────────────
   tempo:
     image: grafana/tempo:2.6.1

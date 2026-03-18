@@ -42,27 +42,10 @@ exporters:
   # This is the MOST IMPORTANT exporter for learning. Before you trust that
   # data is flowing, you verify it here. It's the Collector's console.log.
   #
-  # In later phases we'll add:
-  #   - otlp/jaeger exporter  → sends traces to Jaeger
-  #   - kafka exporter        → sends to Kafka topic
+  # In later phases we'll add additional exporters
+  # (Kafka for streaming, Prometheus for scraping, etc.).
   debug:
     verbosity: detailed
-
-  # The otlp exporter sends data OUT of the Collector using the OTLP protocol.
-  # We name it "otlp/jaeger" (the "/jaeger" suffix is just a label — you can
-  # have multiple otlp exporters with different names and configs).
-  #
-  # endpoint: jaeger:4317
-  #   "jaeger" resolves to the Jaeger container via Docker's internal DNS.
-  #   Port 4317 = Jaeger's OTLP/gRPC receiver (enabled by COLLECTOR_OTLP_ENABLED=true).
-  #   gRPC is preferred here: it's binary, more efficient than HTTP/JSON for
-  #   collector-to-collector hops inside a Docker network.
-  #
-  # tls.insecure: true — no TLS certificates needed for local Docker networking.
-  otlp/jaeger:
-    endpoint: jaeger:4317
-    tls:
-      insecure: true
 
   # The kafka exporter sends data to a Kafka topic.
   # We define two separate instances: one for metrics, one for logs.
@@ -106,10 +89,7 @@ exporters:
       insecure: true  # No TLS needed for internal Docker network communication
 
   # The otlp/tempo exporter forwards spans to Grafana Tempo.
-  # We name it "otlp/tempo" to distinguish it from the Jaeger exporter above.
-  # Both Jaeger and Tempo receive the same trace data simultaneously — this lets
-  # us compare them side by side while we transition. In Phase 7 step 3 we'll
-  # remove Jaeger once Tempo is confirmed working with Grafana correlation.
+  # Tempo receives traces via OTLP/gRPC on port 4317.
   otlp/tempo:
     endpoint: tempo:4317   # tempo = Docker container name; 4317 = Tempo's gRPC OTLP receiver
     tls:
@@ -141,16 +121,13 @@ service:
   # You can have separate pipelines for traces, metrics, and logs —
   # each can route to different exporters independently.
   pipelines:
-    # Traces pipeline: receives OTLP spans → batches them → sends to BOTH:
-    #   1. debug   → Collector stdout (so we can still see raw span data in logs)
-    #   2. jaeger  → Jaeger for visual exploration in the UI
+    # Traces pipeline: receives OTLP spans → batches them → sends to:
+    #   1. debug      → Collector stdout (for local verification)
+    #   2. otlp/tempo → Tempo for trace storage and Grafana exploration
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      # Traces now go to both Jaeger and Tempo simultaneously.
-      # Why keep both? Jaeger is already working and trusted. Tempo is new.
-      # Running them in parallel lets you verify Tempo works before removing Jaeger.
-      exporters: [debug, otlp/jaeger, otlp/tempo]
+      exporters: [debug, otlp/tempo]
 
     # Metrics pipeline: receives OTLP metrics → batches them → sends to BOTH:
     #   1. kafka/metrics → Kafka topic for Flink stream processing

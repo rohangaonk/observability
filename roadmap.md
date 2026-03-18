@@ -70,12 +70,12 @@ Flink now consumes alert events from Kafka and pushes them to Loki with a dedica
 ### Phase 7: Trace Storage with Tempo + Unified Correlation
 *   [x] Deploy **Grafana Tempo** via Docker Compose as the trace backend.
 *   [ ] Reconfigure the OTel Collector to export traces to Tempo (replacing or alongside Jaeger).
-*   [ ] Configure Grafana datasource links: Loki → Tempo (click a trace ID in a log line → jump to the trace).
-*   [ ] Configure Prometheus exemplars → Tempo (click a metrics spike → jump to a representative trace).
+*   [x] Configure Grafana datasource links: Loki → Tempo (click a trace ID in a log line → jump to the trace).
+*   [x] Configure Prometheus exemplars → Tempo (click a metrics spike → jump to a representative trace).
 *   [ ] Explore a full correlation flow in Grafana: metrics spike → trace → logs for that request.
 
 **Phase 7 progress:**
-Tempo is deployed, traces are flowing, and Grafana is provisioned with the Tempo datasource. Next step: reconfigure OTel Collector to export traces to Tempo (replacing Jaeger).
+Tempo is deployed, traces are flowing, and both Loki→Tempo and Prometheus exemplar→Tempo links are configured in Grafana provisioning. Next step: explore a full correlation flow in Grafana (metrics spike → trace → logs).
 
 ---
 **Note for future sessions:**

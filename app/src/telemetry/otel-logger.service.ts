@@ -79,12 +79,21 @@ export class OtelLoggerService implements LoggerService {
     const activeSpan = trace.getActiveSpan();
     const spanContext = activeSpan?.spanContext();
 
+    // Derived fields in Grafana Loki are regex-based over the rendered log line.
+    // Include trace_id in the body when a span is active so logs become clickable
+    // and can jump directly to Tempo traces.
+    const renderedMessage =
+      typeof message === 'string' ? message : JSON.stringify(message);
+    const bodyWithTrace = spanContext
+      ? `trace_id=${spanContext.traceId} ${renderedMessage}`
+      : renderedMessage;
+
     this.otelLogger.emit({
       severityNumber,
       severityText,
       // body is the main log message. OTel allows any type, but strings work
       // best in Loki's log viewer.
-      body: typeof message === 'string' ? message : JSON.stringify(message),
+      body: bodyWithTrace,
       attributes: {
         // NestJS context string (e.g. "SimulatorService", "AppController")
         // This becomes a queryable attribute in Loki structured metadata.

@@ -27,6 +27,9 @@ datasources:
       # Must match global.scrape_interval in prometheus.yml.
       # If mismatched, you'll see "Expected X got Y" resolution warnings in panels.
       timeInterval: "15s"
+      exemplarTraceIdDest:
+        datasourceUid: tempo-local
+        name: trace_id
 
   # ─────────────────────────────────────────────────────────────────
   # Loki datasource
@@ -51,6 +54,12 @@ datasources:
     jsonData:
       maxLines: 1000              # Max log lines returned per query in Explore.
                                   # Increase if you need more history per query.
+      derivedFields:
+        - datasourceUid: tempo-local
+          # Match 32-char hex trace IDs from either key=value or JSON-style logs.
+          matcherRegex: "(?:trace_id|traceID|traceid)\\\"?[:=]\\\"?([0-9a-fA-F]{32})"
+          name: TraceID
+          url: "$${__value.raw}"
 
   # ─────────────────────────────────────────────────────────────────
   # Tempo datasource — distributed trace backend
@@ -60,9 +69,8 @@ datasources:
   #   2. You click the trace ID → Grafana sends GET /api/traces/{traceID} to Tempo.
   #   3. Tempo returns the full span tree → Grafana renders the waterfall.
   #
-  # In Phase 7 step 3 we'll wire Loki → Tempo and Prometheus → Tempo links
-  # so this click-through works automatically. For now we register the
-  # datasource so Tempo is selectable in Explore.
+  # Loki and Prometheus are wired to this datasource so click-through
+  # correlation (logs/metrics → trace) works in Grafana Explore.
   #
   # uid: "tempo-local" — we set a stable uid so Loki and Prometheus datasource
   # configs can reference it by ID when we add correlation links next.
